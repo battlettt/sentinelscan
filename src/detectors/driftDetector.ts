@@ -37,6 +37,16 @@ export function detectDrift(current: ScanSnapshot, previous: ScanSnapshot | null
     });
   }
 
+  if (current.sriMissingCount > previous.sriMissingCount) {
+    findings.push({
+      id: 'drift-new-sri-gaps',
+      title: `${current.sriMissingCount - previous.sriMissingCount} new script(s) without Subresource Integrity`,
+      description: `A new cross-origin script with no integrity check appeared since the last scan on ${formatDate(previous.timestamp)}.`,
+      severity: 'medium',
+      category: 'drift',
+    });
+  }
+
   if (gradeRank(current.grade) < gradeRank(previous.grade)) {
     findings.push({
       id: 'drift-grade-drop',

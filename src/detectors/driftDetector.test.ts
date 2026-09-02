@@ -9,6 +9,7 @@ function snapshot(overrides: Partial<ScanSnapshot> = {}): ScanSnapshot {
     headerFlags: { csp: true, hsts: true },
     cookieFlags: { secure: true, sameSite: true },
     secretsCount: 0,
+    sriMissingCount: 0,
     grade: 'A',
     ...overrides,
   };
@@ -31,6 +32,13 @@ describe('detectDrift', () => {
     const current = snapshot({ secretsCount: 2 });
     const findings = detectDrift(current, previous);
     expect(findings.some((f) => f.id === 'drift-new-secrets')).toBe(true);
+  });
+
+  it('flags an increase in scripts missing SRI', () => {
+    const previous = snapshot({ sriMissingCount: 0 });
+    const current = snapshot({ sriMissingCount: 1 });
+    const findings = detectDrift(current, previous);
+    expect(findings.some((f) => f.id === 'drift-new-sri-gaps')).toBe(true);
   });
 
   it('flags a grade drop', () => {

@@ -10,6 +10,9 @@ class InMemoryStorage implements KeyValueStorage {
   async set(key: string, value: unknown) {
     this.map.set(key, value);
   }
+  async getAllKeys() {
+    return Array.from(this.map.keys());
+  }
 }
 
 function snapshot(domain: string, timestamp: number, grade = 'A'): ScanSnapshot {
@@ -19,6 +22,7 @@ function snapshot(domain: string, timestamp: number, grade = 'A'): ScanSnapshot 
     headerFlags: {},
     cookieFlags: { secure: true, sameSite: true },
     secretsCount: 0,
+    sriMissingCount: 0,
     grade,
   };
 }
@@ -46,5 +50,22 @@ describe('HistoryStore', () => {
     expect(history).toHaveLength(20);
     expect(history[0].timestamp).toBe(5);
     expect(history[19].timestamp).toBe(24);
+  });
+
+  it('returns the latest snapshot for every domain that has been scanned', async () => {
+    const store = new HistoryStore(new InMemoryStorage());
+    await store.appendSnapshot('a.com', snapshot('a.com', 1, 'A'));
+    await store.appendSnapshot('a.com', snapshot('a.com', 2, 'B'));
+    await store.appendSnapshot('b.com', snapshot('b.com', 1, 'C'));
+
+    const latests = await store.getAllLatestSnapshots();
+    expect(latests).toHaveLength(2);
+    expect(latests.find((s) => s.domain === 'a.com')?.grade).toBe('B');
+    expect(latests.find((s) => s.domain === 'b.com')?.grade).toBe('C');
+  });
+
+  it('returns an empty array when nothing has ever been scanned', async () => {
+    const store = new HistoryStore(new InMemoryStorage());
+    expect(await store.getAllLatestSnapshots()).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { ScanSnapshot } from '../detectors/types';
 export interface KeyValueStorage {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
+  getAllKeys(): Promise<string[]>;
 }
 
 export class ChromeLocalStorage implements KeyValueStorage {
@@ -14,6 +15,11 @@ export class ChromeLocalStorage implements KeyValueStorage {
   set(key: string, value: unknown): Promise<void> {
     return new Promise((resolve) => {
       chrome.storage.local.set({ [key]: value }, () => resolve());
+    });
+  }
+  getAllKeys(): Promise<string[]> {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(null, (result) => resolve(Object.keys(result)));
     });
   }
 }
@@ -42,5 +48,18 @@ export class HistoryStore {
     history.push(snapshot);
     while (history.length > MAX_HISTORY_PER_DOMAIN) history.shift();
     await this.storage.set(this.keyFor(domain), history);
+  }
+
+  async getAllLatestSnapshots(): Promise<ScanSnapshot[]> {
+    const keys = await this.storage.getAllKeys();
+    const domainKeys = keys.filter((k) => k.startsWith('history:'));
+    const latests: ScanSnapshot[] = [];
+    for (const key of domainKeys) {
+      const raw = await this.storage.get(key);
+      if (Array.isArray(raw) && raw.length > 0) {
+        latests.push(raw[raw.length - 1] as ScanSnapshot);
+      }
+    }
+    return latests;
   }
 }
