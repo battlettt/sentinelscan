@@ -23,43 +23,68 @@ interface PageData {
   headers: Record<string, string>;
   isHttps: boolean;
   scripts: PageScript[];
+  totalScriptCount: number;
 }
+
+// How many cross-page scripts to actually fetch and scan per scan. Real sites can have
+// 50-100+ <script> tags (ads, trackers, chunked bundles); without a cap, a scan can run
+// long enough to risk the MV3 service worker being torn down mid-scan (it's killed after
+// ~30s of inactivity, and a slow sequential fetch chain easily exceeds that).
+const MAX_SCRIPTS_PER_SCAN = 25;
+// Per-resource timeout, so one slow/hanging third-party script (a stalled ad or tracker
+// request) can't block the whole scan indefinitely.
+const FETCH_TIMEOUT_MS = 6000;
 
 // Runs inside the page itself (via chrome.scripting.executeScript), not the background
 // service worker. activeTab grants this injected function the same origin access the
 // page already has, which a background-initiated fetch() does NOT get for free — that
 // gap is exactly what caused every scan to fail with a fetch error before this fix.
-async function collectPageData(): Promise<PageData> {
-  const res = await fetch(location.href, { credentials: 'include' });
+async function collectPageData(maxScripts: number, timeoutMs: number): Promise<PageData> {
+  async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  const res = await fetchWithTimeout(location.href, { credentials: 'include' });
   const headers: Record<string, string> = {};
   res.headers.forEach((value, key) => {
     headers[key.toLowerCase()] = value;
   });
 
-  const scriptElements = Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[];
-  const scripts: PageScript[] = [];
+  const allScriptElements = (Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[]).filter(
+    (el) => !!el.src,
+  );
+  const scriptElements = allScriptElements.slice(0, maxScripts);
 
-  for (const el of scriptElements) {
-    if (!el.src) continue;
-    let isCrossOrigin = false;
-    try {
-      isCrossOrigin = new URL(el.src).origin !== location.origin;
-    } catch {
-      continue;
-    }
+  // Fetched in parallel, not sequentially — a page with 25 scripts was taking 25x as
+  // long as it needed to when each fetch waited for the previous one to finish.
+  const scripts: PageScript[] = await Promise.all(
+    scriptElements.map(async (el) => {
+      let isCrossOrigin = false;
+      try {
+        isCrossOrigin = new URL(el.src).origin !== location.origin;
+      } catch {
+        return { url: el.src, source: null, isCrossOrigin: false, hasIntegrity: !!el.integrity };
+      }
 
-    let source: string | null = null;
-    try {
-      const scriptRes = await fetch(el.src);
-      source = await scriptRes.text();
-    } catch {
-      source = null;
-    }
+      let source: string | null = null;
+      try {
+        const scriptRes = await fetchWithTimeout(el.src);
+        source = await scriptRes.text();
+      } catch {
+        source = null;
+      }
 
-    scripts.push({ url: el.src, source, isCrossOrigin, hasIntegrity: !!el.integrity });
-  }
+      return { url: el.src, source, isCrossOrigin, hasIntegrity: !!el.integrity };
+    }),
+  );
 
-  return { headers, isHttps: location.protocol === 'https:', scripts };
+  return { headers, isHttps: location.protocol === 'https:', scripts, totalScriptCount: allScriptElements.length };
 }
 
 const historyStore = new HistoryStore(new ChromeLocalStorage());
@@ -70,11 +95,14 @@ export async function runScan(tabId: number, url: string): Promise<ScanResult> {
   const [injection] = await chrome.scripting.executeScript({
     target: { tabId },
     func: collectPageData,
+    args: [MAX_SCRIPTS_PER_SCAN, FETCH_TIMEOUT_MS],
   });
   const pageData = injection.result as PageData;
 
   let scannedScriptCount = 0;
-  let skippedScriptCount = 0;
+  // Scripts beyond MAX_SCRIPTS_PER_SCAN were never attempted at all — those count as
+  // skipped too, same as a CORS failure or a timeout, since they weren't scanned.
+  let skippedScriptCount = pageData.totalScriptCount - pageData.scripts.length;
   let secretFindings: Finding[] = [];
   const mixedContentUrls: string[] = [];
 

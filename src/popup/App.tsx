@@ -118,7 +118,9 @@ export default function App() {
               <FindingCard key={f.id} finding={f} />
             ))}
             {result.skippedScriptCount > 0 && (
-              <div className="skip-note">{result.skippedScriptCount} script(s) couldn't be scanned (blocked by CORS)</div>
+              <div className="skip-note">
+                {result.skippedScriptCount} script(s) not scanned (blocked, timed out, or over the per-scan limit)
+              </div>
             )}
             <button className="copy-report-button" onClick={copyReport}>
               {copied ? 'Copied to clipboard' : 'Copy report as Markdown'}
