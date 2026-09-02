@@ -4,7 +4,7 @@ A Chrome extension that gives any website a real security report card, on demand
 
 Runs entirely client-side. No server, no analytics, nothing transmitted anywhere.
 
-**Status:** v1.1 implemented — 42 unit tests passing, production build verified, first live scan confirmed working after a permissions-model bug fix. Not yet published to the Chrome Web Store (pending: developer account registration). See [`docs/superpowers/specs/2026-09-02-sentinelscan-design.md`](docs/superpowers/specs/2026-09-02-sentinelscan-design.md) for the full design spec, [`PRIVACY.md`](PRIVACY.md) for the privacy policy, and the Obsidian Build Log for the full session-by-session history including real bugs caught along the way.
+**Status:** v1.1 implemented — 42 unit tests passing, production build verified. Two real bugs were found and fixed during live testing (a background-fetch permissions issue, and an unhandled `chrome://` page case); a clean live scan against a real site has not yet been confirmed after those fixes. Not yet published to the Chrome Web Store (pending: developer account registration). See [`docs/superpowers/specs/2026-09-02-sentinelscan-design.md`](docs/superpowers/specs/2026-09-02-sentinelscan-design.md) for the full design spec, [`PRIVACY.md`](PRIVACY.md) for the privacy policy, and the Obsidian Build Log for the full session-by-session history.
 
 ## What's in v1.1
 
