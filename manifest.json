@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "A real security report card for any website: header/config analysis, secrets scanning, and drift detection over time. Runs entirely locally.",
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "src/popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
