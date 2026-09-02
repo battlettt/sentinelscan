@@ -1,11 +1,5 @@
 import { Finding, ScanSnapshot } from './types';
-
-const GRADE_ORDER = ['F', 'D', 'C', 'B-', 'B', 'B+', 'A', 'A+'];
-
-function gradeRank(grade: string): number {
-  const idx = GRADE_ORDER.indexOf(grade);
-  return idx === -1 ? 0 : idx;
-}
+import { gradeRank } from './gradeScale';
 
 function formatDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);

@@ -3,19 +3,9 @@ import { applyAttackMappings } from '../detectors/attackMapper';
 import { scanSourceForSecrets } from '../detectors/secretsScanner';
 import { analyzeSupplyChain, ScriptRef } from '../detectors/supplyChainAnalyzer';
 import { detectDrift } from '../detectors/driftDetector';
+import { gradeColor } from '../detectors/gradeScale';
 import { HistoryStore, ChromeLocalStorage } from '../storage/historyStore';
 import { Finding, ScanResult, ScanSnapshot } from '../detectors/types';
-
-const GRADE_BADGE_COLORS: Record<string, string> = {
-  'A+': '#22C55E',
-  A: '#22C55E',
-  'B+': '#84CC16',
-  B: '#F59E0B',
-  'B-': '#F59E0B',
-  C: '#F97316',
-  D: '#EF4444',
-  F: '#EF4444',
-};
 
 export function shortLabel(url: string): string {
   const parts = url.split('/');
@@ -151,7 +141,7 @@ export async function runScan(tabId: number, url: string): Promise<ScanResult> {
 
   if (typeof chrome !== 'undefined' && chrome.action) {
     chrome.action.setBadgeText({ tabId, text: grade });
-    chrome.action.setBadgeBackgroundColor({ tabId, color: GRADE_BADGE_COLORS[grade] ?? '#94A3B8' });
+    chrome.action.setBadgeBackgroundColor({ tabId, color: gradeColor(grade) });
   }
 
   return {
