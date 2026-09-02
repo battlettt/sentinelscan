@@ -1,5 +1,5 @@
 export type Severity = 'high' | 'medium' | 'low' | 'info';
-export type FindingCategory = 'header' | 'secret' | 'drift';
+export type FindingCategory = 'header' | 'secret' | 'supply-chain' | 'drift';
 
 export interface Finding {
   id: string;
@@ -17,6 +17,7 @@ export interface ScanSnapshot {
   headerFlags: Record<string, boolean>;
   cookieFlags: { secure: boolean; sameSite: boolean };
   secretsCount: number;
+  sriMissingCount: number;
   grade: string;
 }
 

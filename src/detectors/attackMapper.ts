@@ -13,6 +13,7 @@ const FINDING_TO_ATTACK: Record<string, AttackMapping> = {
   'mixed-content': { techniqueId: 'T1557', techniqueName: 'Adversary-in-the-Middle' },
   'missing-frame-protection': { techniqueId: 'T1185', techniqueName: 'Browser Session Hijacking' },
   'cookie-missing-samesite': { techniqueId: 'T1185', techniqueName: 'Browser Session Hijacking' },
+  'missing-sri': { techniqueId: 'T1195', techniqueName: 'Supply Chain Compromise' },
 };
 
 export function applyAttackMappings(findings: Finding[]): Finding[] {

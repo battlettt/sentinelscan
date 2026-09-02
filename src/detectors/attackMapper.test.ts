@@ -17,4 +17,10 @@ describe('applyAttackMappings', () => {
     const [result] = applyAttackMappings([baseFinding('missing-permissions-policy')]);
     expect(result.attackTechniqueId).toBeUndefined();
   });
+
+  it('maps missing-sri to Supply Chain Compromise', () => {
+    const [result] = applyAttackMappings([baseFinding('missing-sri')]);
+    expect(result.attackTechniqueId).toBe('T1195');
+    expect(result.attackTechniqueName).toBe('Supply Chain Compromise');
+  });
 });
