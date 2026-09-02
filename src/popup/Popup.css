@@ -202,6 +202,38 @@ body {
   font-weight: 600;
 }
 
+.benchmark-callout {
+  background: #1b2336;
+  border: 1px solid #272f42;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  margin-bottom: 12px;
+}
+.benchmark-callout strong {
+  color: #f8fafc;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.copy-report-button {
+  width: 100%;
+  background: none;
+  border: 1px solid #272f42;
+  color: #94a3b8;
+  border-radius: 8px;
+  padding: 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 4px;
+}
+.copy-report-button:hover {
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
 .empty-state,
 .skip-note {
   font-size: 11.5px;

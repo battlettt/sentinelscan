@@ -14,6 +14,8 @@ const KNOWN_PATTERNS: SecretPattern[] = [
   { id: 'secret-google-api-key', name: 'Google API Key', regex: /AIza[0-9A-Za-z\-_]{35}/ },
   { id: 'secret-jwt', name: 'JSON Web Token', regex: /eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/ },
   { id: 'secret-private-key', name: 'Private Key Header', regex: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  { id: 'secret-github-token', name: 'GitHub Token', regex: /gh[pousr]_[A-Za-z0-9]{36,}/ },
+  { id: 'secret-slack-webhook', name: 'Slack Incoming Webhook URL', regex: /hooks\.slack\.com\/services\/[A-Za-z0-9/]+/ },
 ];
 
 function shannonEntropy(str: string): number {

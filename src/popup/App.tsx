@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ScanResult, ScanSnapshot } from '../detectors/types';
+import { gradeRank, rankToGrade } from '../detectors/gradeScale';
 import GradeRing from './components/GradeRing';
 import FindingCard from './components/FindingCard';
 import './Popup.css';
@@ -8,12 +9,33 @@ type TabName = 'overview' | 'findings' | 'history';
 
 const RESTRICTED_SCHEMES = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'devtools:'];
 
+function buildMarkdownReport(result: ScanResult): string {
+  const lines = [
+    `# SentinelScan report — ${result.domain}`,
+    ``,
+    `Grade: **${result.grade}** — scanned ${new Date(result.timestamp).toISOString()}`,
+    ``,
+  ];
+  if (result.findings.length === 0) {
+    lines.push('No issues found.');
+  } else {
+    for (const f of result.findings) {
+      const technique = f.attackTechniqueId ? ` (${f.attackTechniqueId} · ${f.attackTechniqueName})` : '';
+      lines.push(`- **[${f.severity.toUpperCase()}]** ${f.title}${technique}`);
+    }
+  }
+  lines.push('', '_Generated locally by SentinelScan — no data left your device._');
+  return lines.join('\n');
+}
+
 export default function App() {
   const [tab, setTab] = useState<TabName>('overview');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ScanSnapshot[]>([]);
+  const [allStats, setAllStats] = useState<ScanSnapshot[]>([]);
+  const [copied, setCopied] = useState(false);
 
   async function scan() {
     setLoading(true);
@@ -30,12 +52,24 @@ export default function App() {
       const domain = new URL(tabInfo.url).hostname;
       const hist = await chrome.runtime.sendMessage({ type: 'GET_HISTORY', domain });
       setHistory(Array.isArray(hist) ? hist : []);
+      const stats = await chrome.runtime.sendMessage({ type: 'GET_ALL_STATS' });
+      setAllStats(Array.isArray(stats) ? stats : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }
+
+  async function copyReport() {
+    if (!result) return;
+    await navigator.clipboard.writeText(buildMarkdownReport(result));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const averageGrade =
+    allStats.length > 1 ? rankToGrade(allStats.reduce((sum, s) => sum + gradeRank(s.grade), 0) / allStats.length) : null;
 
   useEffect(() => {
     scan();
@@ -86,6 +120,9 @@ export default function App() {
             {result.skippedScriptCount > 0 && (
               <div className="skip-note">{result.skippedScriptCount} script(s) couldn't be scanned (blocked by CORS)</div>
             )}
+            <button className="copy-report-button" onClick={copyReport}>
+              {copied ? 'Copied to clipboard' : 'Copy report as Markdown'}
+            </button>
           </>
         )}
 
@@ -100,6 +137,12 @@ export default function App() {
 
         {tab === 'history' && (
           <>
+            {averageGrade && (
+              <div className="benchmark-callout">
+                Your average across {allStats.length} site{allStats.length === 1 ? '' : 's'} scanned:{' '}
+                <strong>{averageGrade}</strong>
+              </div>
+            )}
             {history.length === 0 && <div className="empty-state">No scan history yet for this domain.</div>}
             {history
               .slice()

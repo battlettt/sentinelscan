@@ -14,6 +14,21 @@ describe('scanSourceForSecrets', () => {
     expect(findings.some((f) => f.id === 'secret-stripe-secret-key')).toBe(true);
   });
 
+  it('detects a GitHub personal access token pattern', () => {
+    const source = `const token = "ghp_${'a'.repeat(36)}";`;
+    const findings = scanSourceForSecrets(source, 'bundle.js');
+    expect(findings.some((f) => f.id === 'secret-github-token')).toBe(true);
+  });
+
+  it('detects a Slack incoming webhook URL', () => {
+    // Deliberately not shaped like a real Slack webhook ID (T.../B.../...) so this
+    // fixture doesn't trip GitHub's own push-protection secret scanner — it only
+    // needs to match our broad path-based regex, not look like a genuine webhook.
+    const source = `fetch("https://hooks.slack.com/services/not-a-real-webhook-path")`;
+    const findings = scanSourceForSecrets(source, 'bundle.js');
+    expect(findings.some((f) => f.id === 'secret-slack-webhook')).toBe(true);
+  });
+
   it('flags a high-entropy string with no known pattern match', () => {
     const source = `const token = "Kj8vQzT2pLmN9xRbYcWdEfGhIjKlMnOp";`;
     const findings = scanSourceForSecrets(source, 'bundle.js');
