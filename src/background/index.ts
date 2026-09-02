@@ -40,21 +40,32 @@ const FETCH_TIMEOUT_MS = 6000;
 // page already has, which a background-initiated fetch() does NOT get for free — that
 // gap is exactly what caused every scan to fail with a fetch error before this fix.
 async function collectPageData(maxScripts: number, timeoutMs: number): Promise<PageData> {
-  async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  // Guards the ENTIRE fetch-and-read cycle, not just the initial connection. The
+  // previous version cleared its timeout as soon as fetch() resolved (i.e. once
+  // headers arrived), leaving the actual body download — the part that can genuinely
+  // be slow for a large or slow-streaming third-party script — with zero timeout
+  // protection at all. That's the real reason scans kept hanging even after adding
+  // "a timeout": the timer was being cancelled before the slow part even started.
+  async function fetchTextWithTimeout(
+    input: string,
+    init?: RequestInit,
+  ): Promise<{ headers: Record<string, string>; body: string }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(input, { ...init, signal: controller.signal });
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      const body = await response.text();
+      return { headers, body };
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
-  const res = await fetchWithTimeout(location.href, { credentials: 'include' });
-  const headers: Record<string, string> = {};
-  res.headers.forEach((value, key) => {
-    headers[key.toLowerCase()] = value;
-  });
+  const page = await fetchTextWithTimeout(location.href, { credentials: 'include' });
 
   const allScriptElements = (Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[]).filter(
     (el) => !!el.src,
@@ -74,8 +85,7 @@ async function collectPageData(maxScripts: number, timeoutMs: number): Promise<P
 
       let source: string | null = null;
       try {
-        const scriptRes = await fetchWithTimeout(el.src);
-        source = await scriptRes.text();
+        source = (await fetchTextWithTimeout(el.src)).body;
       } catch {
         source = null;
       }
@@ -84,7 +94,12 @@ async function collectPageData(maxScripts: number, timeoutMs: number): Promise<P
     }),
   );
 
-  return { headers, isHttps: location.protocol === 'https:', scripts, totalScriptCount: allScriptElements.length };
+  return {
+    headers: page.headers,
+    isHttps: location.protocol === 'https:',
+    scripts,
+    totalScriptCount: allScriptElements.length,
+  };
 }
 
 const historyStore = new HistoryStore(new ChromeLocalStorage());

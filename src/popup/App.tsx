@@ -8,6 +8,18 @@ import './Popup.css';
 type TabName = 'overview' | 'findings' | 'history';
 
 const RESTRICTED_SCHEMES = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'devtools:'];
+// Backstop only. Every fetch inside the scan pipeline already has its own timeout, so
+// this should never actually fire — but if it ever does (an unforeseen hang somewhere),
+// the popup shows a clear error instead of spinning forever with no way to tell if
+// anything is still happening.
+const SCAN_TIMEOUT_MS = 20000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
 
 function buildMarkdownReport(result: ScanResult): string {
   const lines = [
@@ -46,7 +58,11 @@ export default function App() {
       if (RESTRICTED_SCHEMES.includes(new URL(tabInfo.url).protocol)) {
         throw new Error("Can't scan browser-internal pages — open a real website and try again.");
       }
-      const response = await chrome.runtime.sendMessage({ type: 'SCAN_REQUEST', tabId: tabInfo.id, url: tabInfo.url });
+      const response = await withTimeout(
+        chrome.runtime.sendMessage({ type: 'SCAN_REQUEST', tabId: tabInfo.id, url: tabInfo.url }),
+        SCAN_TIMEOUT_MS,
+        'Scan timed out. The site may be slow or unresponsive — try again.',
+      );
       if (response?.error) throw new Error(response.error);
       setResult(response as ScanResult);
       const domain = new URL(tabInfo.url).hostname;
