@@ -1,76 +1,98 @@
-import { analyzeHeaders } from '../detectors/headerAnalyzer';
-import { computeGrade } from '../detectors/headerAnalyzer';
+import { analyzeHeaders, computeGrade } from '../detectors/headerAnalyzer';
 import { applyAttackMappings } from '../detectors/attackMapper';
 import { scanSourceForSecrets } from '../detectors/secretsScanner';
 import { detectDrift } from '../detectors/driftDetector';
 import { HistoryStore, ChromeLocalStorage } from '../storage/historyStore';
 import { Finding, ScanResult, ScanSnapshot } from '../detectors/types';
 
-export function extractScriptUrls(html: string, baseUrl: string): string[] {
-  const urls: string[] = [];
-  const regex = /<script[^>]+src=["']([^"']+)["']/gi;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(html)) !== null) {
-    try {
-      urls.push(new URL(match[1], baseUrl).toString());
-    } catch {
-      // ignore malformed src attributes
-    }
-  }
-  return urls;
-}
-
 export function shortLabel(url: string): string {
   const parts = url.split('/');
   return parts[parts.length - 1] || url;
 }
 
-const historyStore = new HistoryStore(new ChromeLocalStorage());
+interface PageData {
+  headers: Record<string, string>;
+  isHttps: boolean;
+  scripts: { url: string; source: string | null }[];
+}
 
-export async function runScan(url: string): Promise<ScanResult> {
-  const domain = new URL(url).hostname;
-  const isHttps = url.startsWith('https://');
-
-  const response = await fetch(url, { credentials: 'include' });
+// Runs inside the page itself (via chrome.scripting.executeScript), not the background
+// service worker. activeTab grants this injected function the same origin access the
+// page already has, which a background-initiated fetch() does NOT get for free — that
+// gap is exactly what caused every scan to fail with a fetch error before this fix.
+async function collectPageData(): Promise<PageData> {
+  const res = await fetch(location.href, { credentials: 'include' });
   const headers: Record<string, string> = {};
-  response.headers.forEach((value, key) => {
+  res.headers.forEach((value, key) => {
     headers[key.toLowerCase()] = value;
   });
 
-  const html = await response.text();
-  const scriptUrls = extractScriptUrls(html, url);
+  const scriptUrls = Array.from(document.querySelectorAll('script[src]'))
+    .map((el) => (el as HTMLScriptElement).src)
+    .filter(Boolean);
+
+  const scripts: { url: string; source: string | null }[] = [];
+  for (const scriptUrl of scriptUrls) {
+    try {
+      const scriptRes = await fetch(scriptUrl);
+      scripts.push({ url: scriptUrl, source: await scriptRes.text() });
+    } catch {
+      scripts.push({ url: scriptUrl, source: null });
+    }
+  }
+
+  return { headers, isHttps: location.protocol === 'https:', scripts };
+}
+
+const historyStore = new HistoryStore(new ChromeLocalStorage());
+
+export async function runScan(tabId: number, url: string): Promise<ScanResult> {
+  const domain = new URL(url).hostname;
+
+  const [injection] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: collectPageData,
+  });
+  const pageData = injection.result as PageData;
 
   let scannedScriptCount = 0;
   let skippedScriptCount = 0;
   let secretFindings: Finding[] = [];
-  for (const scriptUrl of scriptUrls) {
-    try {
-      const scriptResp = await fetch(scriptUrl);
-      const scriptSource = await scriptResp.text();
-      secretFindings = secretFindings.concat(scanSourceForSecrets(scriptSource, shortLabel(scriptUrl)));
-      scannedScriptCount++;
-    } catch {
-      skippedScriptCount++;
+  const mixedContentUrls: string[] = [];
+
+  for (const script of pageData.scripts) {
+    if (pageData.isHttps && script.url.startsWith('http://')) {
+      mixedContentUrls.push(script.url);
     }
+    if (script.source === null) {
+      skippedScriptCount++;
+      continue;
+    }
+    secretFindings = secretFindings.concat(scanSourceForSecrets(script.source, shortLabel(script.url)));
+    scannedScriptCount++;
   }
 
   const cookies = await chrome.cookies.getAll({ url });
   const cookieFlags = cookies.map((c) => ({ secure: c.secure, sameSite: c.sameSite }));
-  const mixedContentUrls = scriptUrls.filter((u) => isHttps && u.startsWith('http://'));
 
-  let headerFindings = analyzeHeaders({ headers, isHttps, mixedContentUrls, cookies: cookieFlags });
+  let headerFindings = analyzeHeaders({
+    headers: pageData.headers,
+    isHttps: pageData.isHttps,
+    mixedContentUrls,
+    cookies: cookieFlags,
+  });
   headerFindings = applyAttackMappings(headerFindings);
 
   const allFindings = [...headerFindings, ...secretFindings];
   const grade = computeGrade(allFindings);
 
   const headerFlags: Record<string, boolean> = {
-    csp: !!headers['content-security-policy'],
-    hsts: !!headers['strict-transport-security'],
-    frameOptions: !!headers['x-frame-options'],
-    contentTypeOptions: !!headers['x-content-type-options'],
-    referrerPolicy: !!headers['referrer-policy'],
-    permissionsPolicy: !!headers['permissions-policy'],
+    csp: !!pageData.headers['content-security-policy'],
+    hsts: !!pageData.headers['strict-transport-security'],
+    frameOptions: !!pageData.headers['x-frame-options'],
+    contentTypeOptions: !!pageData.headers['x-content-type-options'],
+    referrerPolicy: !!pageData.headers['referrer-policy'],
+    permissionsPolicy: !!pageData.headers['permissions-policy'],
   };
 
   const snapshot: ScanSnapshot = {
@@ -104,8 +126,8 @@ export async function runScan(url: string): Promise<ScanResult> {
 // the pure helpers above without needing a real extension runtime.
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'SCAN_REQUEST' && typeof message.url === 'string') {
-      runScan(message.url)
+    if (message?.type === 'SCAN_REQUEST' && typeof message.tabId === 'number' && typeof message.url === 'string') {
+      runScan(message.tabId, message.url)
         .then(sendResponse)
         .catch((err) => sendResponse({ error: String(err) }));
       return true;

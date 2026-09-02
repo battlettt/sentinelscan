@@ -18,8 +18,8 @@ export default function App() {
     setError(null);
     try {
       const [tabInfo] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabInfo?.url) throw new Error('No active tab URL');
-      const response = await chrome.runtime.sendMessage({ type: 'SCAN_REQUEST', url: tabInfo.url });
+      if (!tabInfo?.url || typeof tabInfo.id !== 'number') throw new Error('No active tab available to scan');
+      const response = await chrome.runtime.sendMessage({ type: 'SCAN_REQUEST', tabId: tabInfo.id, url: tabInfo.url });
       if (response?.error) throw new Error(response.error);
       setResult(response as ScanResult);
       const domain = new URL(tabInfo.url).hostname;
