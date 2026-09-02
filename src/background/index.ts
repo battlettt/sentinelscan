@@ -106,12 +106,15 @@ const historyStore = new HistoryStore(new ChromeLocalStorage());
 
 export async function runScan(tabId: number, url: string): Promise<ScanResult> {
   const domain = new URL(url).hostname;
+  console.log('[SentinelScan] runScan: start', { tabId, url });
 
+  console.log('[SentinelScan] runScan: calling chrome.scripting.executeScript...');
   const [injection] = await chrome.scripting.executeScript({
     target: { tabId },
     func: collectPageData,
     args: [MAX_SCRIPTS_PER_SCAN, FETCH_TIMEOUT_MS],
   });
+  console.log('[SentinelScan] runScan: executeScript resolved', { hasResult: !!injection.result });
   const pageData = injection.result as PageData;
 
   let scannedScriptCount = 0;
@@ -133,7 +136,9 @@ export async function runScan(tabId: number, url: string): Promise<ScanResult> {
     scannedScriptCount++;
   }
 
+  console.log('[SentinelScan] runScan: calling chrome.cookies.getAll...');
   const cookies = await chrome.cookies.getAll({ url });
+  console.log('[SentinelScan] runScan: cookies.getAll resolved', { count: cookies.length });
   const cookieFlags = cookies.map((c) => ({ secure: c.secure, sameSite: c.sameSite }));
 
   let headerFindings = analyzeHeaders({
@@ -178,9 +183,11 @@ export async function runScan(tabId: number, url: string): Promise<ScanResult> {
     grade,
   };
 
+  console.log('[SentinelScan] runScan: reading history store...');
   const previous = await historyStore.getLatest(domain);
   const driftFindings = detectDrift(snapshot, previous);
   await historyStore.appendSnapshot(domain, snapshot);
+  console.log('[SentinelScan] runScan: history store updated, returning result');
 
   if (typeof chrome !== 'undefined' && chrome.action) {
     chrome.action.setBadgeText({ tabId, text: grade });
@@ -205,7 +212,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     if (message?.type === 'SCAN_REQUEST' && typeof message.tabId === 'number' && typeof message.url === 'string') {
       runScan(message.tabId, message.url)
         .then(sendResponse)
-        .catch((err) => sendResponse({ error: String(err) }));
+        .catch((err) => {
+          console.error('[SentinelScan] runScan failed', err);
+          sendResponse({ error: String(err) });
+        });
       return true;
     }
     if (message?.type === 'GET_HISTORY' && typeof message.domain === 'string') {
@@ -227,5 +237,18 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated) {
     if (changeInfo.status === 'loading') {
       chrome.action.setBadgeText({ tabId, text: '' });
     }
+  });
+}
+
+// Diagnostic safety net: if anything throws or rejects outside the message handler's
+// own try/catch (e.g. inside a chrome.* callback we didn't anticipate), this makes sure
+// it's at least visible in the service worker console instead of failing completely
+// silently, which is what made this bug hard to diagnose in the first place.
+if (typeof self !== 'undefined') {
+  self.addEventListener('unhandledrejection', (event) => {
+    console.error('[SentinelScan] unhandled rejection in service worker', event.reason);
+  });
+  self.addEventListener('error', (event) => {
+    console.error('[SentinelScan] uncaught error in service worker', event.error ?? event.message);
   });
 }
