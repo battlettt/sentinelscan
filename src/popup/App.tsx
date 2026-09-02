@@ -6,6 +6,8 @@ import './Popup.css';
 
 type TabName = 'overview' | 'findings' | 'history';
 
+const RESTRICTED_SCHEMES = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'devtools:'];
+
 export default function App() {
   const [tab, setTab] = useState<TabName>('overview');
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -19,6 +21,9 @@ export default function App() {
     try {
       const [tabInfo] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tabInfo?.url || typeof tabInfo.id !== 'number') throw new Error('No active tab available to scan');
+      if (RESTRICTED_SCHEMES.includes(new URL(tabInfo.url).protocol)) {
+        throw new Error("Can't scan browser-internal pages — open a real website and try again.");
+      }
       const response = await chrome.runtime.sendMessage({ type: 'SCAN_REQUEST', tabId: tabInfo.id, url: tabInfo.url });
       if (response?.error) throw new Error(response.error);
       setResult(response as ScanResult);
